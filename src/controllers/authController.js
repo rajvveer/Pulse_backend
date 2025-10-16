@@ -1,21 +1,16 @@
+// src/controllers/authController.js
 const authService = require('../services/authService');
 const rateLimit = require('express-rate-limit');
 
 // Phone number validation for Indian numbers
 const validatePhoneNumber = (phone) => {
-  // Remove all non-digits
-  const cleanPhone = phone.replace(/\D/g, '');
-  
-  // Check if it's a valid Indian mobile number (10 digits starting with 6-9)
+  const cleanPhone = String(phone).replace(/\D/g, '');
   if (cleanPhone.match(/^[6-9]\d{9}$/)) {
     return cleanPhone;
   }
-  
-  // Check if it already has country code
   if (cleanPhone.match(/^91[6-9]\d{9}$/)) {
     return cleanPhone.substring(2);
   }
-  
   throw new Error('Please enter a valid Indian mobile number (10 digits starting with 6-9)');
 };
 
@@ -30,8 +25,8 @@ const validateEmail = (email) => {
 
 // Rate limiting configurations
 const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   message: {
     success: false,
     error: 'Too many authentication attempts, please try again later',
@@ -39,14 +34,11 @@ const authRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    return process.env.NODE_ENV === 'development';
-  }
 });
 
 const otpRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 OTP requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   message: {
     success: false,
     error: 'Too many OTP requests, please try again later',
@@ -54,17 +46,19 @@ const otpRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    return process.env.NODE_ENV === 'development';
-  }
 });
+
+// Helper: build E.164 phone format
+const buildE164Phone = (identifier) => {
+  const cleanPhone = validatePhoneNumber(identifier);
+  return `+91${cleanPhone}`;
+};
 
 // Initiate authentication (email or phone)
 const initiateAuth = async (req, res) => {
   try {
     const { method, identifier, deviceId, platform, deviceName, appVersion } = req.body;
 
-    // Validate required fields
     if (!method || !identifier) {
       return res.status(400).json({
         success: false,
@@ -73,7 +67,6 @@ const initiateAuth = async (req, res) => {
       });
     }
 
-    // Validate method
     if (!['email', 'phone'].includes(method)) {
       return res.status(400).json({
         success: false,
@@ -83,16 +76,16 @@ const initiateAuth = async (req, res) => {
     }
 
     let processedIdentifier;
-    
-    // Validate and process identifier based on method
+    let displayIdentifier;
+
     if (method === 'phone') {
-      const cleanPhone = validatePhoneNumber(identifier);
-      processedIdentifier = cleanPhone;
+      processedIdentifier = buildE164Phone(identifier);
+      displayIdentifier = processedIdentifier;
     } else if (method === 'email') {
       processedIdentifier = validateEmail(identifier);
+      displayIdentifier = processedIdentifier;
     }
 
-    // Device information
     const deviceInfo = {
       deviceId: deviceId || `web-${Date.now()}`,
       platform: platform || 'web',
@@ -100,7 +93,6 @@ const initiateAuth = async (req, res) => {
       appVersion: appVersion || '1.0.0'
     };
 
-    // Validate device info
     if (!deviceInfo.deviceId) {
       return res.status(400).json({
         success: false,
@@ -109,13 +101,14 @@ const initiateAuth = async (req, res) => {
       });
     }
 
-    // Call auth service
     const result = await authService.initiateAuth(
       processedIdentifier,
       method,
       deviceInfo,
       req.ip || '127.0.0.1'
     );
+
+    result.identifier = displayIdentifier;
 
     res.json(result);
 
@@ -134,7 +127,6 @@ const verifyOTP = async (req, res) => {
   try {
     const { identifier, otp, method, deviceId, platform } = req.body;
 
-    // Validate required fields
     if (!identifier || !otp || !method || !deviceId) {
       return res.status(400).json({
         success: false,
@@ -143,7 +135,6 @@ const verifyOTP = async (req, res) => {
       });
     }
 
-    // Validate method
     if (!['email', 'phone'].includes(method)) {
       return res.status(400).json({
         success: false,
@@ -152,25 +143,22 @@ const verifyOTP = async (req, res) => {
       });
     }
 
-    let processedIdentifier;
-    
-    // Process identifier based on method
+    let lookupIdentifier;
+
+    // Ensure the lookup identifier matches what's in the database
     if (method === 'phone') {
-      const cleanPhone = validatePhoneNumber(identifier);
-      processedIdentifier = `91${cleanPhone}`;
+      lookupIdentifier = buildE164Phone(identifier);
     } else if (method === 'email') {
-      processedIdentifier = validateEmail(identifier);
+      lookupIdentifier = validateEmail(identifier);
     }
 
-    // Device information
     const deviceInfo = {
       deviceId,
       platform: platform || 'web'
     };
-
-    // Call auth service
+    
     const result = await authService.verifyOTPAndAuth(
-      processedIdentifier,
+      lookupIdentifier,
       otp,
       method,
       deviceInfo,
@@ -182,7 +170,7 @@ const verifyOTP = async (req, res) => {
   } catch (error) {
     console.error('OTP verification error:', error.message);
     
-    if (error.message.includes('Invalid') || error.message.includes('expired')) {
+    if (error.message && (error.message.includes('Invalid') || error.message.includes('expired'))) {
       return res.status(401).json({
         success: false,
         error: error.message,
@@ -203,7 +191,6 @@ const createUsername = async (req, res) => {
   try {
     const { tempToken, username, password, deviceId } = req.body;
 
-    // Validate required fields
     if (!tempToken || !username || !password || !deviceId) {
       return res.status(400).json({
         success: false,
@@ -212,13 +199,11 @@ const createUsername = async (req, res) => {
       });
     }
 
-    // Device information
     const deviceInfo = {
       deviceId,
       platform: req.body.platform || 'web'
     };
 
-    // Call auth service
     const result = await authService.createUsernameAndPassword(
       tempToken,
       username,
@@ -232,7 +217,15 @@ const createUsername = async (req, res) => {
   } catch (error) {
     console.error('Username creation error:', error.message);
     
-    if (error.message.includes('already exists')) {
+    if (error.message && error.message.includes('Username must be')) {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+        code: 'INVALID_USERNAME'
+      });
+    }
+    
+    if (error.message && error.message.includes('already exists')) {
       return res.status(409).json({
         success: false,
         error: error.message,
@@ -240,7 +233,7 @@ const createUsername = async (req, res) => {
       });
     }
 
-    if (error.message.includes('already set')) {
+    if (error.message && error.message.includes('already set')) {
       return res.status(400).json({
         success: false,
         error: error.message,
@@ -275,7 +268,7 @@ const refreshToken = async (req, res) => {
   } catch (error) {
     console.error('Token refresh error:', error.message);
     
-    if (error.message.includes('Invalid') || error.message.includes('expired')) {
+    if (error.message && (error.message.includes('Invalid') || error.message.includes('expired'))) {
       return res.status(401).json({
         success: false,
         error: error.message,
@@ -315,8 +308,7 @@ const resendOTP = async (req, res) => {
     let processedIdentifier;
     
     if (method === 'phone') {
-      const cleanPhone = validatePhoneNumber(identifier);
-      processedIdentifier = `91${cleanPhone}`;
+      processedIdentifier = buildE164Phone(identifier);
     } else if (method === 'email') {
       processedIdentifier = validateEmail(identifier);
     }
@@ -368,12 +360,9 @@ const checkUsername = async (req, res) => {
 // Get current user info
 const getCurrentUser = async (req, res) => {
   try {
-    // User info is attached by auth middleware
     const user = req.user;
-
     const result = await authService.getCurrentUser(user.userId);
     res.json(result);
-
   } catch (error) {
     console.error('Get current user error:', error.message);
     res.status(500).json({
