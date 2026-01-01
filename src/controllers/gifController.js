@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const TENOR_API_KEY = process.env.TENOR_API_KEY || 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
+const TENOR_API_KEY = process.env.TENOR_API_KEY
 const TENOR_CLIENT_KEY = process.env.TENOR_CLIENT_KEY || 'pulse_app';
 const TENOR_BASE_URL = 'https://tenor.googleapis.com/v2';
 
