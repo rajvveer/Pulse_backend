@@ -10,6 +10,9 @@ router.get('/me', verifyAccessToken, userController.getCurrentUser);
 // Get user profile by username
 router.get('/:username', verifyAccessToken, userController.getUserByUsername);
 
+// NEW: Get user posts
+router.get('/:username/posts', verifyAccessToken, userController.getUserPosts);
+
 // Update user profile
 router.patch('/me', verifyAccessToken, userController.updateProfile);
 
@@ -18,5 +21,8 @@ router.post('/me/avatar', verifyAccessToken, upload.single('avatar'), userContro
 
 // Follow/Unfollow user
 router.post('/:username/follow', verifyAccessToken, userController.toggleFollow);
+// Get lists
+router.get('/:username/followers', verifyAccessToken, userController.getFollowers);
+router.get('/:username/following', verifyAccessToken, userController.getFollowing);
 
 module.exports = router;

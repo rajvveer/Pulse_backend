@@ -18,7 +18,8 @@ const commentSchema = new mongoose.Schema({
     type: String,
     required: true,
     maxlength: 500,
-    trim: true
+    trim: true,
+    required:false
   },
 
   mentions: [{
@@ -30,6 +31,14 @@ const commentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
+    gif: {
+    id: String,
+    url: String,
+    preview: String,
+    width: Number,
+    height: Number,
+    description: String
+  },
 
   parentComment: {
     type: mongoose.Schema.Types.ObjectId,

@@ -14,6 +14,8 @@ router.patch('/:postId', verifyAccessToken, postController.updatePost);
 
 // Delete post
 router.delete('/:postId', verifyAccessToken, postController.deletePost);
+router.get('/me/posts', verifyAccessToken, postController.getMyPosts);
+
 
 // User posts
 router.get('/user/:username', verifyAccessToken, postController.getUserPosts);

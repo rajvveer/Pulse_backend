@@ -1,15 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate } = require('../middleware/auth');
-const postController = require('../controllers/post.controller');
+const { verifyAccessToken } = require('../middlewares/auth'); // Assuming 'authenticate' is 'verifyAccessToken' based on your middleware
+const feedController = require('../controllers/feedController'); // <--- NEW CONTROLLER IMPORTED
 
-// Home feed (posts from following)
-router.get('/home', authenticate, postController.getHomeFeed);
+// NEW: Global feed (fixes the bug, shows all public posts)
+router.get('/global', verifyAccessToken, feedController.getGlobalFeed);
 
-// Trending posts
-router.get('/trending', authenticate, postController.getTrendingPosts);
+// Home feed (personalized feed from following users - EXISTING)
+router.get('/home', verifyAccessToken, feedController.getHomeFeed);
 
-// Nearby posts (location-based)
-router.get('/nearby', authenticate, postController.getNearbyPosts);
+// Trending posts (EXISTING)
+router.get('/trending', verifyAccessToken, feedController.getTrendingPosts);
+
+// Nearby posts (location-based - EXISTING)
+router.get('/nearby', verifyAccessToken, feedController.getNearbyPosts);
 
 module.exports = router;

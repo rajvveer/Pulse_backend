@@ -10,6 +10,10 @@ const cacheService = require('./services/cacheService');
 const app = require('./app');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken'); // ✅ ADDED: For socket auth
+
+// ✅ ADDED: Import the Chat Realtime Handler
+const realtimeHandler = require('./sockets/realtime');
 
 const PORT = config.get('server.port');
 const NODE_ENV = config.get('server.nodeEnv');
@@ -26,6 +30,29 @@ const io = new Server(server, {
     origin: config.get('cors.origin'),
     methods: ["GET", "POST"],
     credentials: config.get('cors.credentials')
+  }
+});
+
+// ✅ ADDED: Socket Authentication Middleware
+// This ensures 'socket.userId' exists for the chat logic
+io.use((socket, next) => {
+  if (socket.handshake.auth && socket.handshake.auth.token) {
+    try {
+      // Get token from auth object
+      const token = socket.handshake.auth.token;
+      // Verify token (using your config secret)
+      const decoded = jwt.verify(token, config.get('jwt.accessTokenSecret') || process.env.JWT_SECRET);
+      socket.userId = decoded.userId;
+      next();
+    } catch (err) {
+      console.error('Socket Auth Error:', err.message);
+      next(new Error('Authentication error'));
+    }
+  } else {
+    // Allow unauthenticated connections if needed (or fail)
+    // For chat, we usually want auth, but we'll let it pass to next() 
+    // so your existing 'user-online' logic doesn't break.
+    next();
   }
 });
 
@@ -75,8 +102,12 @@ async function initialize() {
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-  console.log(`👤 User connected: ${socket.id}`);
+  console.log(`👤 User connected: ${socket.id} ${socket.userId ? `(ID: ${socket.userId})` : ''}`);
   
+  // ✅ ADDED: Attach the Real-Time Chat Logic here
+  // This enables join_conversation, send_message, typing_start, etc.
+  realtimeHandler(io, socket);
+
   socket.on('disconnect', () => {
     console.log(`👋 User disconnected: ${socket.id}`);
   });

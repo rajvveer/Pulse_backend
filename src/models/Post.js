@@ -138,7 +138,10 @@ postSchema.methods.isLikedBy = function(userId) {
   return this.likes.some(id => id.toString() === userId.toString());
 };
 
-// Static methods
+// =========================================================
+//  STATIC METHODS (FIXED POPULATE)
+// =========================================================
+
 postSchema.statics.getHomeFeed = function(userId, followingIds, options = {}) {
   const { limit = 20, lastPostDate } = options;
   
@@ -152,7 +155,25 @@ postSchema.statics.getHomeFeed = function(userId, followingIds, options = {}) {
   return this.find(query)
     .sort({ createdAt: -1 })
     .limit(limit)
-    .populate('author', 'username name avatar isVerified')
+    // ✅ FIX: Added 'profile'
+    .populate('author', 'username name avatar profile isVerified')
+    .lean();
+};
+
+postSchema.statics.getGlobalFeed = function(options = {}) {
+  const { limit = 20, lastPostDate } = options;
+  
+  const query = {
+    isActive: true,
+    visibility: 'public', 
+    createdAt: lastPostDate ? { $lt: new Date(lastPostDate) } : { $exists: true }
+  };
+
+  return this.find(query)
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    // ✅ FIX: Added 'profile'
+    .populate('author', 'username name avatar profile isVerified') 
     .lean();
 };
 
@@ -167,7 +188,8 @@ postSchema.statics.getTrendingPosts = function(options = {}) {
   })
   .sort({ 'stats.likes': -1, 'stats.comments': -1 })
   .limit(limit)
-  .populate('author', 'username name avatar isVerified')
+  // ✅ FIX: Added 'profile'
+  .populate('author', 'username name avatar profile isVerified')
   .lean();
 };
 
@@ -188,7 +210,8 @@ postSchema.statics.getNearbyPosts = function(coordinates, maxDistance = 1000, op
     }
   })
   .limit(limit)
-  .populate('author', 'username name avatar isVerified')
+  // ✅ FIX: Added 'profile'
+  .populate('author', 'username name avatar profile isVerified')
   .lean();
 };
 

@@ -2,6 +2,24 @@ const Post = require('../models/Post');
 const User = require('../models/User');
 const Comment = require('../models/Comment');
 
+// Helper function to mask anonymous posts
+const maskAnonymousPost = (post) => {
+  const postObj = typeof post.toObject === 'function' ? post.toObject() : post;
+  
+  if (postObj.isAnonymous) {
+    postObj.author = {
+      _id: null,
+      username: 'anonymous',
+      name: 'Anonymous',
+      avatar: null,
+      profile: { avatar: null }, // Ensure profile exists even for anon
+      isVerified: false
+    };
+  }
+  
+  return postObj;
+};
+
 // Create post
 exports.createPost = async (req, res) => {
   try {
@@ -20,14 +38,18 @@ exports.createPost = async (req, res) => {
 
     // Update user post count
     await User.findByIdAndUpdate(req.user.userId, {
-      $inc: { 'stats.postsCount': 1 }
+      $inc: { 'stats.posts': 1 }
     });
 
-    await post.populate('author', 'username name avatar isVerified');
+    // ✅ FIX: Added 'profile'
+    await post.populate('author', 'username name avatar profile isVerified');
+
+    // Mask if anonymous before sending response
+    const maskedPost = maskAnonymousPost(post);
 
     res.status(201).json({
       success: true,
-      data: post
+      data: maskedPost
     });
   } catch (error) {
     console.error('Create post error:', error.message);
@@ -41,7 +63,8 @@ exports.getPost = async (req, res) => {
     const { postId } = req.params;
 
     const post = await Post.findById(postId)
-      .populate('author', 'username name avatar isVerified')
+      // ✅ FIX: Added 'profile'
+      .populate('author', 'username name avatar profile isVerified')
       .populate('originalPost');
 
     if (!post || !post.isActive) {
@@ -52,11 +75,12 @@ exports.getPost = async (req, res) => {
     post.stats.views += 1;
     await post.save();
 
+    const postObj = maskAnonymousPost(post);
     const isLiked = post.isLikedBy(req.user.userId);
 
     res.json({
       success: true,
-      data: { ...post.toObject(), isLiked }
+      data: { ...postObj, isLiked }
     });
   } catch (error) {
     console.error('Get post error:', error.message);
@@ -77,12 +101,14 @@ exports.getUserPosts = async (req, res) => {
 
     const posts = await Post.find({
       author: user._id,
-      isActive: true
+      isActive: true,
+      isAnonymous: false 
     })
     .sort({ isPinned: -1, createdAt: -1 })
     .limit(parseInt(limit))
     .skip((parseInt(page) - 1) * parseInt(limit))
-    .populate('author', 'username name avatar isVerified');
+    // ✅ FIX: Added 'profile'
+    .populate('author', 'username name avatar profile isVerified');
 
     res.json({
       success: true,
@@ -99,28 +125,25 @@ exports.getUserPosts = async (req, res) => {
   }
 };
 
-// Get home feed
-exports.getHomeFeed = async (req, res) => {
+// Get My Posts (For the Manage Screen)
+exports.getMyPosts = async (req, res) => {
   try {
-    const { page = 1, limit = 20, lastPostDate } = req.query;
-    
-    const user = await User.findById(req.user.userId).select('following');
-    const followingIds = user.following || [];
+    const { page = 1, limit = 20 } = req.query;
 
-    const posts = await Post.getHomeFeed(req.user.userId, followingIds, {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      lastPostDate
-    });
-
-    const postsWithLikes = posts.map(post => ({
-      ...post,
-      isLiked: post.likes?.some(id => id.toString() === req.user.userId)
-    }));
+    const posts = await Post.find({
+      author: req.user.userId,
+      isActive: true,
+      isAnonymous: false
+    })
+    .sort({ isPinned: -1, createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit))
+    // ✅ FIX: Added 'profile'
+    .populate('author', 'username name avatar profile isVerified');
 
     res.json({
       success: true,
-      data: postsWithLikes,
+      data: posts,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -128,52 +151,7 @@ exports.getHomeFeed = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get home feed error:', error.message);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Get trending posts
-exports.getTrendingPosts = async (req, res) => {
-  try {
-    const { limit = 20, timeRange = 24 } = req.query;
-
-    const posts = await Post.getTrendingPosts({
-      limit: parseInt(limit),
-      timeRange: parseInt(timeRange)
-    });
-
-    res.json({
-      success: true,
-      data: posts
-    });
-  } catch (error) {
-    console.error('Get trending posts error:', error.message);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Get nearby posts
-exports.getNearbyPosts = async (req, res) => {
-  try {
-    const { longitude, latitude, maxDistance = 1000, limit = 20 } = req.query;
-
-    if (!longitude || !latitude) {
-      return res.status(400).json({ success: false, message: 'Location required' });
-    }
-
-    const posts = await Post.getNearbyPosts(
-      [parseFloat(longitude), parseFloat(latitude)],
-      parseInt(maxDistance),
-      { limit: parseInt(limit) }
-    );
-
-    res.json({
-      success: true,
-      data: posts
-    });
-  } catch (error) {
-    console.error('Get nearby posts error:', error.message);
+    console.error('Get my posts error:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -218,7 +196,7 @@ exports.toggleLike = async (req, res) => {
 exports.addComment = async (req, res) => {
   try {
     const { postId } = req.params;
-    const { content, parentCommentId } = req.body;
+    const { content, parentCommentId, gif } = req.body;
 
     const post = await Post.findById(postId);
     if (!post) {
@@ -229,10 +207,18 @@ exports.addComment = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Comments disabled' });
     }
 
+    if (!content?.trim() && !gif?.url) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Comment must have text or GIF' 
+      });
+    }
+
     const comment = new Comment({
       post: postId,
       author: req.user.userId,
-      content,
+      content: content?.trim() || '',
+      gif: gif || null,
       parentComment: parentCommentId || null
     });
 
@@ -247,11 +233,14 @@ exports.addComment = async (req, res) => {
       });
     }
 
-    await comment.populate('author', 'username name avatar isVerified');
+    // ✅ FIX: Added 'profile' so comments show avatar immediately
+    const populatedComment = await Comment.findById(comment._id)
+      .populate('author', 'username name avatar profile isVerified')
+      .lean();
 
     res.status(201).json({
       success: true,
-      data: comment
+      data: populatedComment
     });
   } catch (error) {
     console.error('Add comment error:', error.message);
@@ -273,15 +262,45 @@ exports.getComments = async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
     .skip((parseInt(page) - 1) * parseInt(limit))
-    .populate('author', 'username name avatar isVerified')
+    // ✅ FIX: Added 'profile'
+    .populate('author', 'username name avatar profile isVerified')
     .populate({
       path: 'replies',
-      populate: { path: 'author', select: 'username name avatar isVerified' }
-    });
+      populate: { 
+        path: 'author', 
+        // ✅ FIX: Added 'profile' for replies too
+        select: 'username name avatar profile isVerified'
+      }
+    })
+    .lean();
+
+    // Recursively populate nested replies
+    const populateNestedReplies = async (comments) => {
+      for (let comment of comments) {
+        if (comment.replies && comment.replies.length > 0) {
+          for (let reply of comment.replies) {
+            if (reply.replies && reply.replies.length > 0) {
+              await Comment.populate(reply, {
+                path: 'replies',
+                populate: {
+                  path: 'author',
+                  // ✅ FIX: Added 'profile' here
+                  select: 'username name avatar profile isVerified'
+                }
+              });
+              await populateNestedReplies(reply.replies);
+            }
+          }
+        }
+      }
+      return comments;
+    };
+
+    const populatedComments = await populateNestedReplies(comments);
 
     res.json({
       success: true,
-      data: comments,
+      data: populatedComments,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit)
@@ -303,15 +322,21 @@ exports.deletePost = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Post not found' });
     }
 
-    if (post.author.toString() !== req.user.userId) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    const postAuthorId = (post.author._id || post.author).toString();
+    const currentUserId = req.user.userId.toString();
+
+    if (postAuthorId !== currentUserId) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You can only delete your own posts' 
+      });
     }
 
     post.isActive = false;
     await post.save();
 
     await User.findByIdAndUpdate(req.user.userId, {
-      $inc: { 'stats.postsCount': -1 }
+      $inc: { 'stats.posts': -1 }
     });
 
     res.json({
@@ -320,7 +345,10 @@ exports.deletePost = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete post error:', error.message);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete post' 
+    });
   }
 };
 
@@ -348,9 +376,11 @@ exports.updatePost = async (req, res) => {
 
     await post.save();
 
+    const maskedPost = maskAnonymousPost(post);
+
     res.json({
       success: true,
-      data: post
+      data: maskedPost
     });
   } catch (error) {
     console.error('Update post error:', error.message);
