@@ -56,6 +56,10 @@ app.use('/api/v1/feed', require('./routes/feed.js'));
 app.use('/api/v1/chat', require('./routes/chatRoutes'));
 app.use('/api/v1/media', require('./routes/media'));
 app.use('/api/v1/gifs', require('./routes/gifs'));
+
+// ✅ NEW: Register the Reels Route here!
+app.use('/api/v1/reels', require('./routes/reelRoutes')); 
+
 // 404 handler
 app.use((req, res, next) => {
   res.status(404).json({
