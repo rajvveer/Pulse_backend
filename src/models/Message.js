@@ -12,24 +12,32 @@ const messageSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  // ✅ UPDATE: Added 'gif', 'sticker', 'image'
   type: {
     type: String,
     enum: ['text', 'image', 'video', 'gif', 'sticker', 'system'],
     default: 'text'
   },
-  // Content stores the Text OR the URL for media
   content: {
     type: String,
     trim: true
   },
-  // ✅ NEW: Media Metadata (Crucial for UI layout)
   media: {
-    url: String,       // Backup URL
-    thumbnail: String, // For videos
-    width: Number,     // Aspect Ratio maintenance
+    url: String,
+    thumbnail: String,
+    width: Number,
     height: Number,
     mimeType: String
+  },
+  // ✅ ADD THIS: Reply feature
+  replyTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message'
+  },
+  // ✅ ADD THIS: Reactions
+  reactions: {
+    type: Map,
+    of: String, // userId: emoji
+    default: {}
   },
   readBy: [{
     type: mongoose.Schema.Types.ObjectId,

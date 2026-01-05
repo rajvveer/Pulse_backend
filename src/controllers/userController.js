@@ -11,6 +11,38 @@ cloudinary.config({
 });
 
 // ==========================================
+// SEARCH USERS
+// ==========================================
+exports.searchUsers = async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.trim().length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const searchQuery = q.trim();
+
+    // Search by username or displayName (case-insensitive)
+    const users = await User.find({
+      $or: [
+        { username: { $regex: searchQuery, $options: 'i' } },
+        { 'profile.displayName': { $regex: searchQuery, $options: 'i' } }
+      ],
+      _id: { $ne: req.user.userId } // Exclude current user
+    })
+    .select('username profile.displayName profile.avatar avatar isVerified')
+    .limit(20)
+    .lean();
+
+    res.json({ success: true, data: users });
+  } catch (error) {
+    console.error('❌ Search users error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
 // 1. GET CURRENT USER (With Auto-Fix Logic)
 // ==========================================
 exports.getCurrentUser = async (req, res) => {
