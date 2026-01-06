@@ -16,22 +16,19 @@ class SMTPConfig {
         return null;
       }
 
-      // FIXED: createTransport (not createTransporter)
       this.transporter = nodemailer.createTransport({
         service: 'gmail',
         host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
+        port: 465, // Changed to 465 for secure: true (Standard Gmail SSL)
+        secure: true, // Use SSL for better production stability
         auth: {
           user: otpConfig.email,
           pass: otpConfig.emailAppPassword
         },
-        pool: true,
-        maxConnections: 5,
-        maxMessages: 100,
-        rateLimit: 10,
+        // IMPORTANT: Pool disabled for better compatibility with serverless/production environments
+        pool: false, 
         tls: {
-          rejectUnauthorized: false
+          rejectUnauthorized: false // Keep this if you have cert issues, otherwise remove for better security
         }
       });
 
@@ -72,23 +69,27 @@ class SMTPConfig {
     });
   }
 
+  // UPDATED: Wrapped in explicit Promise for production stability
   async sendMail(mailOptions) {
-    try {
-      if (!this.isConfigured || !this.transporter) {
-        throw new Error('SMTP not configured');
-      }
-
-      const result = await this.transporter.sendMail(mailOptions);
-      
-      console.log(`📧 Email sent successfully to ${mailOptions.to}`);
-      console.log(`📬 Message ID: ${result.messageId}`);
-
-      return result;
-
-    } catch (error) {
-      console.error('Email send error:', error);
-      throw new Error(`Failed to send email: ${error.message}`);
+    // Auto-initialize if not ready
+    if (!this.isConfigured || !this.transporter) {
+        console.log('⚠️ SMTP not ready, attempting to initialize...');
+        await this.initialize();
+        if (!this.transporter) throw new Error('SMTP failed to initialize');
     }
+
+    return new Promise((resolve, reject) => {
+      this.transporter.sendMail(mailOptions, (err, info) => {
+        if (err) {
+          console.error('❌ Email send error:', err);
+          reject(err);
+        } else {
+          console.log(`✅ Email sent successfully to ${mailOptions.to}`);
+          console.log(`📬 Message ID: ${info.messageId}`);
+          resolve(info);
+        }
+      });
+    });
   }
 
   getTransporter() {
@@ -107,12 +108,10 @@ class SMTPConfig {
       service: 'Gmail',
       host: 'smtp.gmail.com',
       port: 465,
-      secure: false,
+      secure: true,
       user: otpConfig.email,
       configured: this.isConfigured,
-      pooled: true,
-      maxConnections: 5,
-      maxMessages: 100
+      pooled: false
     };
   }
 
