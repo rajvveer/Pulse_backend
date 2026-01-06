@@ -17,18 +17,21 @@ class SMTPConfig {
       }
 
       this.transporter = nodemailer.createTransport({
-        service: 'gmail',
         host: 'smtp.gmail.com',
-        port: 465, // Changed to 465 for secure: true (Standard Gmail SSL)
-        secure: true, // Use SSL for better production stability
+        port: 587, // Changed from 465 to 587 for production compatibility
+        secure: false, // Changed to false for port 587
+        requireTLS: true, // REQUIRED for port 587 - ensures TLS encryption
         auth: {
           user: otpConfig.email,
           pass: otpConfig.emailAppPassword
         },
-        // IMPORTANT: Pool disabled for better compatibility with serverless/production environments
-        pool: false, 
+        pool: false, // Good for serverless
+        connectionTimeout: 10000, // 10 seconds timeout for connection
+        greetingTimeout: 10000, // 10 seconds for greeting
+        socketTimeout: 30000, // 30 seconds for socket timeout
         tls: {
-          rejectUnauthorized: false // Keep this if you have cert issues, otherwise remove for better security
+          ciphers: 'SSLv3', // Better compatibility
+          rejectUnauthorized: false // Only if you have cert issues
         }
       });
 
@@ -59,7 +62,12 @@ class SMTPConfig {
     }
 
     return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('SMTP verification timeout after 15s'));
+      }, 15000);
+
       this.transporter.verify((error, success) => {
+        clearTimeout(timeoutId);
         if (error) {
           reject(new Error(`SMTP verification failed: ${error.message}`));
         } else {
@@ -69,17 +77,21 @@ class SMTPConfig {
     });
   }
 
-  // UPDATED: Wrapped in explicit Promise for production stability
   async sendMail(mailOptions) {
     // Auto-initialize if not ready
     if (!this.isConfigured || !this.transporter) {
-        console.log('⚠️ SMTP not ready, attempting to initialize...');
-        await this.initialize();
-        if (!this.transporter) throw new Error('SMTP failed to initialize');
+      console.log('⚠️ SMTP not ready, attempting to initialize...');
+      await this.initialize();
+      if (!this.transporter) throw new Error('SMTP failed to initialize');
     }
 
     return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Email send timeout after 45s'));
+      }, 45000); // 45 second timeout for sending
+
       this.transporter.sendMail(mailOptions, (err, info) => {
+        clearTimeout(timeoutId);
         if (err) {
           console.error('❌ Email send error:', err);
           reject(err);
@@ -107,8 +119,9 @@ class SMTPConfig {
     return {
       service: 'Gmail',
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
+      port: 587,
+      secure: false,
+      requireTLS: true,
       user: otpConfig.email,
       configured: this.isConfigured,
       pooled: false
