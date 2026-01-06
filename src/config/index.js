@@ -88,14 +88,14 @@ class Config {
       },
 
       // Redis Configuration
-      redis: {
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT) || 6379,
-        password: process.env.REDIS_PASSWORD,
-        maxRetries: parseInt(process.env.REDIS_MAX_RETRIES) || 3,
-        retryDelayOnFailover: parseInt(process.env.REDIS_RETRY_DELAY_ON_FAILOVER) || 100
-      },
+redis: {
+  url: process.env.REDIS_URL || null,   // 👈 IMPORTANT
+  host: process.env.REDIS_HOST || "localhost",
+  port: parseInt(process.env.REDIS_PORT) || 6379,
+  password: process.env.REDIS_PASSWORD || null,
+  maxRetries: parseInt(process.env.REDIS_MAX_RETRIES) || 3,
+  retryDelayOnFailover: parseInt(process.env.REDIS_RETRY_DELAY_ON_FAILOVER) || 100
+},
 
       // Media & Storage
       media: {
