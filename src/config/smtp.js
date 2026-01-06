@@ -106,7 +106,7 @@ class SMTPConfig {
     return {
       service: 'Gmail',
       host: 'smtp.gmail.com',
-      port: 587,
+      port: 465,
       secure: false,
       user: otpConfig.email,
       configured: this.isConfigured,
