@@ -1,4 +1,4 @@
-// src/services/otpService.js (or customOTPService.js)
+// src/services/customOTPService.js
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
@@ -6,39 +6,31 @@ const OTP = require('../models/OTP');
 const cacheService = require('./cacheService');
 const Twilio = require('twilio');
 
+// 1. ADDED: Brevo Adapter
+const BrevoTransport = require('nodemailer-brevo-transport');
+
 class CustomOTPService {
   constructor() {
-    // Email transporter setup
+    // --- 2. CHANGED: Email transporter setup (Switched from Gmail to Brevo) ---
     this.emailTransporter = null;
-    if (process.env.YOUR_EMAIL && process.env.YOUR_EMAIL_APP_PASSWORD) {
-      this.emailTransporter = nodemailer.createTransport({
-        service: 'gmail',
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
-        auth: {
-          user: process.env.YOUR_EMAIL,
-          pass: process.env.YOUR_EMAIL_APP_PASSWORD
-        },
-        pool: true,
-        maxConnections: 5,
-        maxMessages: 100,
-        rateLimit: 10
-      });
-      
-      // Verify email connection
-      this.emailTransporter.verify((error) => {
-        if (error) {
-          console.error('❌ Email SMTP connection failed:', error.message);
-        } else {
-          console.log('✅ Email SMTP server ready for OTP');
-        }
-      });
+    
+    // We now check for EMAIL_API_KEY instead of YOUR_EMAIL_APP_PASSWORD
+    if (process.env.EMAIL_API_KEY) {
+      try {
+        this.emailTransporter = nodemailer.createTransport(
+          new BrevoTransport({
+            apiKey: process.env.EMAIL_API_KEY
+          })
+        );
+        console.log('✅ Email Service Ready (via Brevo HTTP)');
+      } catch (err) {
+        console.error('❌ Email Transport Init Failed:', err.message);
+      }
     } else {
-      console.warn('⚠️  Email credentials not configured - email OTP disabled');
+      console.warn('⚠️ EMAIL_API_KEY missing in .env - Email OTP disabled');
     }
 
-    // Twilio SMS configuration
+    // --- SMS setup (KEPT EXACTLY THE SAME) ---
     this.twilioClient = null;
     if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM) {
       try {
@@ -102,7 +94,7 @@ class CustomOTPService {
   async sendEmailOTP(email, purpose = 'login', userId = null, ipAddress = '127.0.0.1') {
     try {
       if (!this.emailTransporter) {
-        throw new Error('Email OTP not configured. Please set YOUR_EMAIL and YOUR_EMAIL_APP_PASSWORD in .env file');
+        throw new Error('Email OTP not configured. Check EMAIL_API_KEY in .env file');
       }
       
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -128,8 +120,9 @@ class CustomOTPService {
       const subject = this.getEmailSubject(purpose);
       const html = this.getEmailTemplate(purpose, otp);
       
+      // --- 3. CHANGED: Updated 'from' to match your Brevo Verified Sender ---
       await this.emailTransporter.sendMail({
-        from: { name: 'Pulse', address: process.env.YOUR_EMAIL },
+        from: 'Pulsee <rajveershekhawat626@gmail.com>', // MUST match your dashboard
         to: email,
         subject: subject,
         html: html
@@ -213,7 +206,7 @@ class CustomOTPService {
     return subjects[purpose] || subjects.login;
   }
 
-  // COMPLETE Email HTML templates
+  // COMPLETE Email HTML templates (ALL KEPT INTACT)
   getEmailTemplate(purpose, otp) {
     const templates = {
       signup: `
