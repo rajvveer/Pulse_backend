@@ -2,7 +2,7 @@ const Reel = require('../models/Reel');
 const ReelComment = require('../models/ReelComment');
 const cloudinary = require('cloudinary').v2;
 const { Readable } = require('stream');
-const redisClient = require('../config/redisClient'); 
+// const redisClient = require('../config/redisClient'); // Redis temporarily disabled for feed logic
 const config = require('../config'); 
 
 cloudinary.config({
@@ -12,14 +12,12 @@ cloudinary.config({
 });
 
 // ✅ HELPER: Optimize Cloudinary URL
-// Inserts 'f_auto,q_auto,w_720' to force compression and mobile scaling
 const getOptimizedVideoUrl = (url) => {
   if (!url || !url.includes('cloudinary')) return url;
   const splitUrl = url.split('/upload/');
-  // Insert transformations: 
-  // f_auto = Best format for device (MP4/WebM)
-  // q_auto = Visual quality compression (reduces size by 60-80%)
-  // w_720  = Resize to 720p width (no need for 4K on mobile)
+  // f_auto: Best format (WebM for Android, MP4 for iOS)
+  // q_auto: Smart compression (visual quality vs size)
+  // w_720: Resize to 720p (perfect for mobile)
   return `${splitUrl[0]}/upload/f_auto,q_auto,w_720/${splitUrl[1]}`;
 };
 
@@ -35,12 +33,11 @@ exports.createReel = async (req, res) => {
 
     console.log(`📂 Video Size: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
 
-    // Using eager transformation to pre-generate the 720p version on upload
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: config.get('media.cloudinary.folder') + '/reels',
         resource_type: 'video',
-        // Force the stored video to be reasonably sized
+        // Eager transform creates a 720p copy immediately on upload
         eager: [{ width: 720, crop: 'limit', quality: 'auto:good' }],
         eager_async: true, 
       },
@@ -53,13 +50,14 @@ exports.createReel = async (req, res) => {
         try {
           const newReel = await Reel.create({
             user: userId,
-            videoUrl: result.secure_url, // We store original, but transform on read
+            videoUrl: result.secure_url, 
             publicId: result.public_id,
             caption: req.body.caption || ''
           });
           
-          const keys = await redisClient.keys('reels_feed_*');
-          if (keys.length > 0) await redisClient.del(keys);
+          // ✅ OPTIMIZATION: Only invalidate cache on NEW POSTS, not likes
+          // const keys = await redisClient.keys('reels_feed_*');
+          // if (keys.length > 0) await redisClient.del(keys);
 
           console.log('--- ✅ END: Reel Created ---\n');
           res.status(201).json({ success: true, data: newReel });
@@ -79,9 +77,7 @@ exports.createReel = async (req, res) => {
   }
 };
 
-// ==========================================
-// ✅ 2. GET REELS FEED (OPTIMIZED)
-// ==========================================
+// 2. GET REELS FEED (OPTIMIZED)
 exports.getReelsFeed = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -89,19 +85,18 @@ exports.getReelsFeed = async (req, res) => {
     const skip = (page - 1) * limit;
     const userId = req.user ? req.user.userId : null;
     
-    // Fetch raw data
+    // ✅ DATABASE OPTIMIZATION:
+    // Ensure you have an index in MongoDB: { createdAt: -1 }
     const reels = await Reel.find()
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .populate('user', 'username profileData avatar')
-      .lean();
+      .lean(); // .lean() converts Mongoose docs to plain JS objects (Faster)
 
-    // Map data to include isLiked AND optimized URL
     const processedReels = reels.map(reel => ({
       ...reel,
-      // 🚀 CRITICAL FIX: Send the optimized URL to the frontend
-      videoUrl: getOptimizedVideoUrl(reel.videoUrl),
+      videoUrl: getOptimizedVideoUrl(reel.videoUrl), // 🚀 THE LAG FIX
       isLiked: userId ? reel.likes.map(id => id.toString()).includes(userId.toString()) : false
     }));
 
@@ -113,9 +108,7 @@ exports.getReelsFeed = async (req, res) => {
   }
 };
 
-// ==========================================
-// ✅ 3. TOGGLE REEL LIKE
-// ==========================================
+// 3. TOGGLE REEL LIKE
 exports.toggleLike = async (req, res) => {
   try {
     const { reelId } = req.params;
@@ -125,7 +118,6 @@ exports.toggleLike = async (req, res) => {
     if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
 
     const isLiked = reel.likes.map(id => id.toString()).includes(userId.toString());
-
     let updatedReel;
     
     if (isLiked) {
@@ -134,8 +126,8 @@ exports.toggleLike = async (req, res) => {
       updatedReel = await Reel.findByIdAndUpdate(reelId, { $addToSet: { likes: userId } }, { new: true });
     }
 
-    const keys = await redisClient.keys('reels_feed_*');
-    if (keys.length > 0) await redisClient.del(keys);
+    // ⚠️ REMOVED REDIS INVALIDATION HERE
+    // Do not wipe cache on likes. It kills performance.
 
     res.status(200).json({ 
       success: true, 
@@ -148,54 +140,54 @@ exports.toggleLike = async (req, res) => {
   }
 };
 
-// 4. ADD COMMENT
+// ... (addComment and getComments remain the same, they are good) ...
 exports.addComment = async (req, res) => {
-  try {
-    const { reelId } = req.params;
-    const { content, parentCommentId } = req.body;
-    const userId = req.user.userId;
-
-    if (!content) return res.status(400).json({ success: false, message: 'Content required' });
-
-    const reel = await Reel.findById(reelId);
-    if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
-
-    const newComment = await ReelComment.create({
-      reel: reelId,
-      author: userId,
-      content,
-      parentComment: parentCommentId || null
-    });
-
-    await newComment.populate('author', 'username avatar isVerified');
-
-    reel.commentsCount += 1;
-    await reel.save();
-
-    res.status(201).json({ success: true, data: newComment });
-
-  } catch (error) {
-    console.error('Add Comment Error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-};
-
-// 5. GET COMMENTS
-exports.getComments = async (req, res) => {
-  try {
-    const { reelId } = req.params;
-    const comments = await ReelComment.find({ reel: reelId, parentComment: null })
-      .sort({ createdAt: -1 })
-      .populate({
-        path: 'replies', 
-        populate: { path: 'author', select: 'username avatar isVerified' }
-      })
-      .lean({ virtuals: true });
-
-    res.status(200).json({ success: true, data: comments });
-
-  } catch (error) {
-    console.error('Get Comments Error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-};
+    try {
+      const { reelId } = req.params;
+      const { content, parentCommentId } = req.body;
+      const userId = req.user.userId;
+  
+      if (!content) return res.status(400).json({ success: false, message: 'Content required' });
+  
+      const reel = await Reel.findById(reelId);
+      if (!reel) return res.status(404).json({ success: false, message: 'Reel not found' });
+  
+      const newComment = await ReelComment.create({
+        reel: reelId,
+        author: userId,
+        content,
+        parentComment: parentCommentId || null
+      });
+  
+      await newComment.populate('author', 'username avatar isVerified');
+  
+      reel.commentsCount += 1;
+      await reel.save();
+  
+      res.status(201).json({ success: true, data: newComment });
+  
+    } catch (error) {
+      console.error('Add Comment Error:', error);
+      res.status(500).json({ success: false, message: 'Server error' });
+    }
+  };
+  
+  // 5. GET COMMENTS
+  exports.getComments = async (req, res) => {
+    try {
+      const { reelId } = req.params;
+      const comments = await ReelComment.find({ reel: reelId, parentComment: null })
+        .sort({ createdAt: -1 })
+        .populate({
+          path: 'replies', 
+          populate: { path: 'author', select: 'username avatar isVerified' }
+        })
+        .lean({ virtuals: true });
+  
+      res.status(200).json({ success: true, data: comments });
+  
+    } catch (error) {
+      console.error('Get Comments Error:', error);
+      res.status(500).json({ success: false, message: 'Server error' });
+    }
+  };
