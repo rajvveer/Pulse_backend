@@ -11,6 +11,9 @@ router.post('/refresh-token', authController.refreshToken);
 router.post('/resend-otp', authController.otpRateLimit, authController.resendOTP);
 router.get('/check-username', authController.checkUsername);
 
+// 🆕 ADDED: Firebase Login Route
+router.post('/firebase-login', authController.authRateLimit, authController.firebaseLogin);
+
 // Protected routes
 router.get('/me', authMiddleware.verifyAccessToken, authController.getCurrentUser);
 router.post('/logout', authMiddleware.verifyAccessToken, authController.logout);
@@ -28,7 +31,8 @@ router.get('/test', (req, res) => {
         'POST /api/v1/auth/create-username - Create username/password (new users)',
         'POST /api/v1/auth/refresh-token - Refresh access token',
         'POST /api/v1/auth/resend-otp - Resend OTP code',
-        'GET /api/v1/auth/check-username - Check username availability'
+        'GET /api/v1/auth/check-username - Check username availability',
+        'POST /api/v1/auth/firebase-login - Login with Firebase ID token' // Added to docs for consistency
       ],
       protected: [
         'GET /api/v1/auth/me - Get current user info',
@@ -42,7 +46,8 @@ router.get('/test', (req, res) => {
       '💾 Multi-device session management',
       '🔒 Rate limiting & security',
       '👤 Username/password creation',
-      '✅ Account verification'
+      '✅ Account verification',
+      '🔥 Firebase Integration'
     ]
   });
 });

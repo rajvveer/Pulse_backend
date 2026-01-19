@@ -400,6 +400,54 @@ const logout = async (req, res) => {
   }
 };
 
+// Handle Firebase Login
+const firebaseLogin = async (req, res) => {
+  try {
+    const { idToken, deviceId, platform, deviceName } = req.body;
+
+    if (!idToken || !deviceId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Firebase ID token and Device ID are required',
+        code: 'MISSING_FIELDS'
+      });
+    }
+
+    const deviceInfo = {
+      deviceId,
+      platform: platform || 'mobile',
+      deviceName: deviceName || 'Unknown'
+    };
+
+    // Call the NEW service method
+    const result = await authService.loginWithFirebase(
+      idToken,
+      deviceInfo,
+      req.ip || '127.0.0.1'
+    );
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Firebase login controller error:', error.message);
+    
+    // Handle specific Firebase errors cleanly
+    if (error.message.includes('Firebase ID token has expired')) {
+      return res.status(401).json({
+        success: false,
+        error: 'Session expired. Please login again.',
+        code: 'TOKEN_EXPIRED'
+      });
+    }
+
+    res.status(401).json({
+      success: false,
+      error: 'Authentication failed',
+      code: 'AUTH_FAILED'
+    });
+  }
+};
+
 module.exports = {
   initiateAuth,
   verifyOTP,
@@ -409,6 +457,7 @@ module.exports = {
   checkUsername,
   getCurrentUser,
   logout,
+  firebaseLogin,
   authRateLimit,
   otpRateLimit
 };

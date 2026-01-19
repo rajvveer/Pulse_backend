@@ -5,6 +5,7 @@ const jwtService = require('./jwtService');
 const customOTPService = require('./customOTPService');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const firebaseConfig = require('../config/firebase');
 
 class AuthService {
   // Initiate authentication process (EMAIL + PHONE)
@@ -78,6 +79,59 @@ class AuthService {
     throw error;
   }
 }
+async loginWithFirebase(idToken, deviceInfo, ipAddress) {
+    try {
+      // 1. Verify the token using Firebase Admin SDK
+      // This validates the signature and expiration independently
+      const decodedToken = await firebaseConfig.verifyIdToken(idToken);
+      
+      const { uid, email, phone_number, picture, name, firebase } = decodedToken;
+      
+      // 2. Identify the user
+      // Firebase standardizes phone numbers as +91XXXXXXXXXX
+      const identifier = phone_number || email;
+      const method = phone_number ? 'phone' : 'email';
+
+      if (!identifier) {
+        throw new Error('Firebase account has no email or phone number');
+      }
+
+      console.log(`🔥 Firebase Login: ${method} - ${identifier}`);
+
+      // 3. Check if user already exists in YOUR database
+      // We reuse the existing lookup logic to ensure consistency
+      let user = await User.findByAuthMethod(method, identifier);
+
+      if (!user) {
+        // 4. If new user, create them
+        // We reuse your existing createNewUser method so the data structure matches perfectly
+        console.log(`👤 Creating new user from Firebase: ${identifier}`);
+        
+        // Pass a dummy OTP result since Firebase already verified them
+        user = await this.createNewUser(method, identifier, { 
+          verified: true,
+          via: 'firebase'
+        });
+
+        // Optional: Update profile with Google/Firebase info if available
+        if (picture && !user.avatar) user.avatar = picture;
+        if (name && !user.name) user.name = name;
+        await user.save();
+      } else {
+        // 5. If existing user, ensure this auth method is marked as verified
+        // This handles the case where a user signed up via Custom OTP but now logs in via Google
+        await this.updateUserAuthMethod(user, method, identifier);
+      }
+
+      // 6. Create Session
+      // This is the convergence point: generate the exact same tokens as your OTP flow
+      return await this.createUserSession(user, deviceInfo, ipAddress);
+
+    } catch (error) {
+      console.error('Firebase login service error:', error.message);
+      throw error;
+    }
+  }
 
   // Verify OTP and proceed with auth flow
   async verifyOTPAndAuth(identifier, otp, method, deviceInfo, ipAddress) {
