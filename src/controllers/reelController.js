@@ -85,20 +85,87 @@ exports.getReelsFeed = async (req, res) => {
     const skip = (page - 1) * limit;
     const userId = req.user ? req.user.userId : null;
     
-    // ✅ DATABASE OPTIMIZATION:
-    // Ensure you have an index in MongoDB: { createdAt: -1 }
     const reels = await Reel.find()
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('user', 'username profileData avatar')
-      .lean(); // .lean() converts Mongoose docs to plain JS objects (Faster)
+      // ✅ FIX 1: Populate 'authMethods' so we can access the hidden avatar
+      // We also get 'profile' and 'isVerified' just in case.
+      .populate('user', 'username profile authMethods avatar isVerified') 
+      .lean(); 
 
-    const processedReels = reels.map(reel => ({
-      ...reel,
-      videoUrl: getOptimizedVideoUrl(reel.videoUrl), // 🚀 THE LAG FIX
-      isLiked: userId ? reel.likes.map(id => id.toString()).includes(userId.toString()) : false
-    }));
+    const processedReels = reels.map(reel => {
+      const user = reel.user || {};
+
+      // ✅ FIX 2: Find the avatar logic
+      // This checks all possible locations for the image.
+      const cleanAvatarUrl = 
+        user.profile?.avatar || 
+        (user.authMethods && user.authMethods.length > 0 ? user.authMethods[0].profile?.avatar : null) || 
+        user.avatar || 
+        null;
+
+      return {
+        ...reel,
+        videoUrl: getOptimizedVideoUrl(reel.videoUrl),
+        isLiked: userId ? reel.likes.map(id => id.toString()).includes(userId.toString()) : false,
+        // ✅ FIX 3: Send a clean user object to frontend
+        user: {
+          _id: user._id,
+          username: user.username,
+          isVerified: user.isVerified,
+          avatar: cleanAvatarUrl // <--- Frontend now gets a simple URL string here!
+        }
+      };
+    });
+
+    res.status(200).json({ success: true, data: processedReels });
+
+  } catch (error) {
+    console.error('Get Reels Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch reels' });
+  }
+};
+
+exports.getReelsFeed = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = 5;
+    const skip = (page - 1) * limit;
+    const userId = req.user ? req.user.userId : null;
+    
+    const reels = await Reel.find()
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      // ✅ FIX 1: Populate 'authMethods' so we can access the hidden avatar
+      // We also get 'profile' and 'isVerified' just in case.
+      .populate('user', 'username profile authMethods avatar isVerified') 
+      .lean(); 
+
+    const processedReels = reels.map(reel => {
+      const user = reel.user || {};
+
+   
+      const cleanAvatarUrl = 
+        user.profile?.avatar || 
+        (user.authMethods && user.authMethods.length > 0 ? user.authMethods[0].profile?.avatar : null) || 
+        user.avatar || 
+        null;
+
+      return {
+        ...reel,
+        videoUrl: getOptimizedVideoUrl(reel.videoUrl),
+        isLiked: userId ? reel.likes.map(id => id.toString()).includes(userId.toString()) : false,
+        // ✅ FIX 3: Send a clean user object to frontend
+        user: {
+          _id: user._id,
+          username: user.username,
+          isVerified: user.isVerified,
+          avatar: cleanAvatarUrl // <--- Frontend now gets a simple URL string here!
+        }
+      };
+    });
 
     res.status(200).json({ success: true, data: processedReels });
 
