@@ -226,8 +226,8 @@ exports.addComment = async (req, res) => {
         parentComment: parentCommentId || null
       });
   
-      await newComment.populate('author', 'username avatar isVerified');
-  
+      await newComment.populate('author', 'username avatar isVerified');  
+      
       reel.commentsCount += 1;
       await reel.save();
   
