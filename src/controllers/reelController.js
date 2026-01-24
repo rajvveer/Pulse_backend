@@ -240,21 +240,49 @@ exports.addComment = async (req, res) => {
   };
   
   // 5. GET COMMENTS
-  exports.getComments = async (req, res) => {
-    try {
-      const { reelId } = req.params;
-      const comments = await ReelComment.find({ reel: reelId, parentComment: null })
-        .sort({ createdAt: -1 })
-        .populate({
-          path: 'replies', 
-          populate: { path: 'author', select: 'username avatar isVerified' }
-        })
-        .lean({ virtuals: true });
-  
-      res.status(200).json({ success: true, data: comments });
-  
-    } catch (error) {
-      console.error('Get Comments Error:', error);
-      res.status(500).json({ success: false, message: 'Server error' });
-    }
-  };
+ exports.getComments = async (req, res) => {
+  try {
+    const { reelId } = req.params;
+
+    // Helper to clean up user objects (extract avatar)
+    const normalizeUser = (user) => {
+      if (!user) return null;
+      const cleanAvatarUrl =
+        user.profile?.avatar ||
+        (user.authMethods && user.authMethods.length > 0 ? user.authMethods[0].profile?.avatar : null) ||
+        user.avatar ||
+        null;
+      
+      return {
+        _id: user._id,
+        username: user.username,
+        isVerified: user.isVerified,
+        avatar: cleanAvatarUrl // <--- The clean URL the frontend expects
+      };
+    };
+
+    const comments = await ReelComment.find({ reel: reelId, parentComment: null })
+      .sort({ createdAt: -1 })
+      .populate('author', 'username profile authMethods avatar isVerified')
+      .populate({
+        path: 'replies',
+        populate: { path: 'author', select: 'username profile authMethods avatar isVerified' }
+      })
+      .lean({ virtuals: true });
+
+    const processedComments = comments.map(comment => ({
+      ...comment,
+      author: normalizeUser(comment.author),
+      replies: comment.replies ? comment.replies.map(reply => ({
+        ...reply,
+        author: normalizeUser(reply.author)
+      })) : []
+    }));
+
+    res.status(200).json({ success: true, data: processedComments });
+
+  } catch (error) {
+    console.error('Get Comments Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
